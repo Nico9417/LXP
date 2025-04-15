@@ -2,14 +2,16 @@ import streamlit as st
 import pandas as pd
 import re
 from openai import AzureOpenAI
+import os
+from dotenv import load_dotenv
 
-# Configuration de l'API Azure OpenAI
+load_dotenv()  # charge les variables du .env
+
 client = AzureOpenAI(
-    api_key="BuS3eGfm3vzNTrYuZ7chvIZvFBXsAKUdyrfiM2J51QlJxOk5JJRuJQQJ99BDACYeBjFXJ3w3AAABACOGKykj",
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
     api_version="2023-07-01-preview",
     azure_endpoint="https://openai-phones-demo.openai.azure.com"
 )
-
 # Chargement des données
 @st.cache_data
 def load_data():
