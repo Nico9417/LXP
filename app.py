@@ -4,7 +4,7 @@ import re
 import random
 
 # 🔗 Ton lien SAS ici
-url = "https://mobileia.blob.core.windows.net/telephones/Dataset_Mobile_avec_EUR.csv?sp=r&st=2025-04-14T16:38:53Z&se=2025-04-15T00:38:53Z&spr=https&sv=2024-11-04&sr=b&sig=cKG85QHKbfw%2FbTnEwW%2BuXtX2dz4Y2V%2FxH5SG5iiIWCc%3D"
+url = "https://mobileia.blob.core.windows.net/telephones/Dataset_Mobile_avec_EUR.csv?sp=r&st=2025-04-15T06:54:35Z&se=2025-05-01T14:54:35Z&spr=https&sv=2024-11-04&sr=b&sig=MKRx00spEJZPn2rCoFd1kbDkwXHz0ahUyZbnvz6LyOo%3D"
 
 def load_data():
     df = pd.read_csv(url)
