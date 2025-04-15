@@ -1,86 +1,107 @@
 import streamlit as st
 import pandas as pd
 import re
-import random
+from openai import AzureOpenAI
 
-# 🔗 Ton lien SAS ici
-url = "https://mobileia.blob.core.windows.net/telephones/Dataset_Mobile_avec_EUR.csv?sp=r&st=2025-04-15T06:54:35Z&se=2025-05-01T14:54:35Z&spr=https&sv=2024-11-04&sr=b&sig=MKRx00spEJZPn2rCoFd1kbDkwXHz0ahUyZbnvz6LyOo%3D"
+# Configuration de l'API Azure OpenAI
+client = AzureOpenAI(
+    api_key="BuS3eGfm3vzNTrYuZ7chvIZvFBXsAKUdyrfiM2J51QlJxOk5JJRuJQQJ99BDACYeBjFXJ3w3AAABACOGKykj",
+    api_version="2023-07-01-preview",
+    azure_endpoint="https://openai-phones-demo.openai.azure.com"
+)
 
+# Chargement des données
+@st.cache_data
 def load_data():
+    url = "https://mobileia.blob.core.windows.net/telephones/Dataset_Mobile_avec_EUR.csv?sp=r&st=2025-04-15T06:54:35Z&se=2025-05-01T14:54:35Z&spr=https&sv=2024-11-04&sr=b&sig=MKRx00spEJZPn2rCoFd1kbDkwXHz0ahUyZbnvz6LyOo%3D"
     df = pd.read_csv(url)
-
-    def extract_number(val):
-        try:
-            return float(re.search(r"\d+(\.\d+)?", str(val)).group())
-        except:
-            return float('nan')
-
-    df['RAM'] = df['RAM'].apply(extract_number)
-    df['Back Camera'] = df['Back Camera'].apply(extract_number)
-    df['Launched Price (EUR)'] = pd.to_numeric(df['Launched Price (EUR)'], errors='coerce')
     return df
 
 df = load_data()
 
-st.title("📱 Assistant IA – Recommandation de Téléphones")
+# Nettoyage de colonnes si nécessaire
+def nettoyer_chiffres(texte):
+    if isinstance(texte, str):
+        chiffres = re.findall(r'\d+', texte)
+        return int(chiffres[0]) if chiffres else None
+    return texte
 
-# ▶️ Formulaire utilisateur
-st.sidebar.header("🎛️ Vos préférences")
+df['RAM'] = df['Model Name'].apply(lambda x: nettoyer_chiffres(x) if 'GB RAM' in x else None)
+df['Camera'] = df['Model Name'].apply(lambda x: nettoyer_chiffres(x) if 'MP' in x else None)
+df['Launched Price (EUR)'] = pd.to_numeric(df['Launched Price (EUR)'], errors='coerce')
+df['Company Name'] = df['Company Name'].fillna("Inconnue")
 
-budget = st.sidebar.slider("Quel est votre budget (€) ?", 50, 2000, 500, step=50)
-ram_min = st.sidebar.selectbox("RAM minimale (Go)", [2, 4, 6, 8, 12])
-camera_min = st.sidebar.slider("Caméra minimale (MP)", 5, 200, 48)
+# Analyse IA
+def analyser_besoin(question):
+    response = client.chat.completions.create(
+        model="gpt-35-turbo",
+        messages=[
+            {"role": "system", "content": "Tu es un assistant qui aide à recommander des téléphones selon le besoin, le budget, la marque ou l'usage."},
+            {"role": "user", "content": question}
+        ]
+    )
+    return response.choices[0].message.content
 
-# Marque préférée
-marques_disponibles = sorted(df['Company Name'].dropna().unique())
-marques_options = ["Aucune"] + marques_disponibles
-marque_pref = st.sidebar.selectbox("Marque préférée", marques_options)
+# Recommandation filtrée
+def recommander_telephones(budget, ram_min, camera_min, marque_preferee):
+    recommandations = []
 
-# ▶️ Bouton
-if st.sidebar.button("🔍 Rechercher"):
-
-    # Filtrage
-    if marque_pref.lower() != "aucune":
-        df_filtre = df[df['Company Name'].str.lower() == marque_pref.lower()]
-    else:
-        df_filtre = df.copy()
-
-    results = []
-
-    for _, row in df_filtre.iterrows():
-        if pd.isna(row['RAM']) or pd.isna(row['Back Camera']):
-            continue
-
+    for _, row in df.iterrows():
         score = 0
-        if row['Launched Price (EUR)'] <= budget:
-            score += 2
-        if row['RAM'] >= ram_min:
+        if pd.notna(row["Launched Price (EUR)"]) and row["Launched Price (EUR)"] <= budget:
             score += 1
-        if row['Back Camera'] >= camera_min:
+        if pd.notna(row["RAM"]) and row["RAM"] >= ram_min:
+            score += 1
+        if pd.notna(row["Camera"]) and row["Camera"] >= camera_min:
+            score += 1
+        if marque_preferee.lower() != "sans préférence" and marque_preferee.lower() in row["Company Name"].lower():
+            score += 1
+        elif marque_preferee.lower() == "sans préférence":
             score += 1
 
-        if score > 0:
-            results.append((score, row))
+        if score >= 2:
+            recommandations.append({
+                "📱 Modèle": row["Model Name"],
+                "🏷️ Marque": row["Company Name"],
+                "💶 Prix (€)": round(row["Launched Price (EUR)"], 2),
+                "💾 RAM": row["RAM"] if pd.notna(row["RAM"]) else "❓",
+                "📷 Caméra": row["Camera"] if pd.notna(row["Camera"]) else "❓",
+                "⭐ Score": score
+            })
 
-    if not results:
-        st.warning("😕 Aucun téléphone trouvé avec ces critères.")
-    else:
-        if marque_pref.lower() == "aucune":
-            random.shuffle(results)
+    return recommandations[:5]
+
+# Interface utilisateur
+st.title("📱 Assistant Téléphones IA")
+
+mode = st.radio("Mode de recherche", ["🧠 Langage naturel", "🧮 Formulaire classique"])
+
+if mode == "🧠 Langage naturel":
+    st.subheader("💬 Décrivez votre besoin librement")
+    question = st.text_area("Exemple : Je veux un Samsung à moins de 500€ pour faire de belles photos")
+    if st.button("Analyser avec IA") and question:
+        with st.spinner("Analyse avec l'IA..."):
+            resultat = analyser_besoin(question)
+            st.success("✅ Résultat de l'IA :")
+            st.write(resultat)
+
+else:
+    st.subheader("🎛️ Filtres classiques")
+
+    budget = st.number_input("Quel est votre budget (€) ?", min_value=50, max_value=3000, value=800, step=50)
+    ram_min = st.number_input("RAM minimale (Go)", min_value=1, max_value=32, value=6)
+    camera_min = st.number_input("Caméra minimale (MP)", min_value=5, max_value=200, value=20)
+    marques = ["Sans préférence"] + sorted(df["Company Name"].dropna().unique())
+    marque_preferee = st.selectbox("Marque préférée", marques)
+
+    if st.button("Rechercher"):
+        recommandations = recommander_telephones(budget, ram_min, camera_min, marque_preferee)
+        st.subheader("📱 Téléphones recommandés :")
+
+        if recommandations:
+            for r in recommandations:
+                st.markdown(
+                    f"- **{r['📱 Modèle']}** | {r['💾 RAM']} Go RAM | {r['📷 Caméra']} MP | {r['💶 Prix (€)']}€ | Score : {r['⭐ Score']}"
+                )
         else:
-            results.sort(key=lambda x: (-x[0], x[1]['Launched Price (EUR)']))
-
-        st.success("📱 Téléphones recommandés :")
-        for score, phone in results[:5]:
-            ram = f"{int(phone['RAM'])} Go" if pd.notna(phone['RAM']) else "❓"
-            cam = f"{int(phone['Back Camera'])} MP" if pd.notna(phone['Back Camera']) else "❓"
-            prix = round(phone['Launched Price (EUR)'], 2)
-
-            st.markdown(f"""
-            **{phone['Company Name']} {phone['Model Name']}**
-            - RAM : {ram}
-            - Caméra : {cam}
-            - Prix : {prix} €
-            - Score : {score}
-            ---
-            """)
+            st.info("Aucun téléphone ne correspond aux critères.")
